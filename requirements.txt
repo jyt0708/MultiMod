@@ -1,0 +1,12 @@
+# 先执行: conda install pytorch torchvision torchaudio pytorch-cuda -c pytorch -c nvidia ---
+# 或 conda install torch torchvision torchaudio 
+
+opencv-python
+numpy
+
+diffusers
+transformers
+accelerate
+sympy==1.13.1
+matplotlib
+scikit-image
