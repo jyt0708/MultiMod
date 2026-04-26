@@ -20,9 +20,10 @@ def run_batch_test(tasks, output_dir):
 
         try:
             # 1. 向 VLM 服务请求 Prompt
-            vlm_resp = requests.post(f"{vlm_url}/get_prompt", 
-                                     json={"image_path": img_path, "instruction": user_inst})
-            prompt_data = vlm_resp.json()["data"]
+            # vlm_resp = requests.post(f"{vlm_url}/get_prompt", 
+            #                          json={"image_path": img_path, "instruction": user_inst})
+            # prompt_data = vlm_resp.json()["data"]
+            prompt_data = {"prompt": "A yellow, long-haired dachshund in a field of dandelions", "negative_prompt": "blurry, low quality"}
             print(f"VLM 生成完成: {prompt_data}")
 
             # 2. 向 SDXL 服务请求 Inpainting
@@ -49,6 +50,7 @@ def run_batch_test(tasks, output_dir):
                     "task_id": i + 1,
                     "instruction": user_inst,
                     "vlm_prompt": prompt_data["prompt"],
+                    "vlm_negative_prompt": prompt_data["negative_prompt"],
                     "output_image": output_path,
                     "evaluation": eval_data
                 }
@@ -62,12 +64,12 @@ def run_batch_test(tasks, output_dir):
 
 if __name__ == "__main__":
     test_tasks = [
-        {"image_path": r"D:\MM\pen.jpg", "instruction": "futuristic, with glowing neon blue lines"},   
-        {"image_path": r"D:\MM\fish.jpg", "instruction": "clownfish"},
-        {"image_path": r"D:\MM\woman.jpg", "instruction": "a woman with sunglasses"},
-        {"image_path": r"D:\MM\house.jpg", "instruction": "a stylish, luxurious house"},
-        {"image_path": r"D:\MM\sea.jpg", "instruction": "a floating house on the sea"},
+        # {"image_path": r"D:\MM\pen.jpg", "instruction": "futuristic, with glowing neon blue lines"},   
+        # {"image_path": r"D:\MM\fish.jpg", "instruction": "clownfish"},
+        # {"image_path": r"D:\MM\woman.jpg", "instruction": "a woman with sunglasses"},
+        # {"image_path": r"D:\MM\house.jpg", "instruction": "a stylish, luxurious house"},
+        # {"image_path": r"D:\MM\sea.jpg", "instruction": "a floating house on the sea"},
         {"image_path": r"D:\MM\dackel.jpg", "instruction": "yellow, long-hair dachshund"},
-        {"image_path": r"D:\MM\dackel.jpg", "instruction": "long-hair dachshund"},
+        # {"image_path": r"D:\MM\dackel.jpg", "instruction": "long-hair dachshund"},
     ]
-    run_batch_test(test_tasks, r"D:\MM\final_outputs")
+    run_batch_test(test_tasks, r"D:\MM\final_outputs_dackel")
