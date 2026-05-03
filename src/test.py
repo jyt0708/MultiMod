@@ -41,7 +41,7 @@ def run_batch_test(tasks, output_dir):
                 # 3. 评估
                 print("正在进行质量评估...")
                 eval_resp = requests.post(f"{vlm_url}/evaluate", 
-                                         json={"image_path": output_path, "instruction": user_inst})
+                                         json={"image_path": output_path, "instruction": prompt_data["prompt"]})
                 eval_data = eval_resp.json()["data"]
                 print(f"评估完成: {eval_data}")
 
@@ -68,8 +68,8 @@ if __name__ == "__main__":
         # {"image_path": r"D:\MM\fish.jpg", "instruction": "clownfish"},
         # {"image_path": r"D:\MM\woman.jpg", "instruction": "a woman with sunglasses"},
         # {"image_path": r"D:\MM\house.jpg", "instruction": "a stylish, luxurious house"},
-        # {"image_path": r"D:\MM\sea.jpg", "instruction": "a floating house on the sea"},
-        {"image_path": r"D:\MM\dackel.jpg", "instruction": "yellow, long-hair dachshund"},
+        {"image_path": r"D:\MM\sea.jpg", "instruction": "a floating house on the sea"},
+        {"image_path": r"D:\MM\dackel.jpg", "instruction": "yellow dachshund"},
         # {"image_path": r"D:\MM\dackel.jpg", "instruction": "long-hair dachshund"},
     ]
-    run_batch_test(test_tasks, r"D:\MM\final_outputs_dackel")
+    run_batch_test(test_tasks, r"D:\MM\final_outputs_3")

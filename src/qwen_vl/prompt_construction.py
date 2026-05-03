@@ -30,30 +30,39 @@ def init_qwen_vl(model_id=QWEN_MODEL_DIR):
 def get_prompts_from_image(image_path, model, tokenizer, user_instruction=""):
     """
     调用Qwen-VL生成JSON Prompt, 在Query中加入用户的额外要求。
-    并基于图像属性 + user instruction 做冲突约束，自动推理 negative prompt。
+    并基于图像主体属性 + user instruction 做冲突约束，自动推理 negative prompt。
     """
     if not user_instruction:
-        task_description = "Analyze this image and provide a structured JSON response."
+        task_description = "Identify the main subject in the image and describe its visual features. IGNORE the background."
     else:
-        task_description = f"""The user wants to modify or style the image based on this request:'{user_instruction}'.
+        task_description = """The user wants to modify or repaint the main subject based on:'{user_instruction}'.
         You MUST:
-        1. Understand the original image attributes (color, style, material, lighting, objects)
-        2. Compare with user instruction
-        3. If there is a conflict, explicitly move conflicting attributes into negative_prompt
-        - Example: image is black, user wants orange → negative_prompt must include "black, dark, monochrome"
-        - Example: image is realistic, user wants anime → negative_prompt must include "realistic, photo"
+        1. FOCUS ONLY on the main subject/object mentioned in the instruction.
+        2. DO NOT describe the background, environment, or surrounding scenery.
+        3. Identify the original attributes of the SUBJECT (color, shape, material, style) and compare these with the user's request.
         4. Do NOT ignore conflicts. Negative prompt must actively suppress unwanted original attributes.
+
+        Example:
+        Original Image: A black dog.
+        User instruction: "A white cat."
+        Output: {{
+        "prompt": "a fluffy white cat",
+        "negative_prompt": "black dog, puppy, black fur"
+        }}
         """
 
-    # If user wants to change 'A' to 'B', the negative prompt MUST include keywords describing 'A'
+    # 4. Move conflicting ORIGINAL subject attributes into the negative_prompt. If user wants to change 'A' to 'B', the negative prompt MUST include keywords describing 'A'
     
     system_prompt = f"""
-    You are an expert Stable Diffusion XL prompt enginner. {task_description}
+    You are an expert Stable Diffusion XL prompt enginner specializing in SUBJECT-ONLY descriptions. 
+    {task_description}
+
+    Your goal is to generate a description that will be used for inpainting or subject replacement.
 
     Strictly follow this JSON format:
     {{
-      "prompt": "Detailed positive prompt and the user's specific request if present.",
-      "negative_prompt": "Attributes to avoid, including conflicts with user request"
+      "prompt": "Detailed positive prompt describing only the subject, and the user's instruction if present.",
+      "negative_prompt": "Identify what's already in the image that must disapper, never repeat the user's request in the negative prompt."
     }}
 
     Return ONLY the JSON object.
