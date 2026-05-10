@@ -16,7 +16,6 @@ def init_qwen_vl(model_id=QWEN_MODEL_DIR):
     model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda", trust_remote_code=True).eval()
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     
-
     
     # 显式设置 pad_token, pad_token_id
     if tokenizer.pad_token is None:

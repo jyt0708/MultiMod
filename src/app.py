@@ -1,8 +1,13 @@
 import streamlit as st
+import asyncio
+import httpx
 import requests
 import os
 import tempfile
+import shutil
+
 from pathlib import Path
+from uuid import uuid4
 
 st.set_page_config(
     page_title="Inpaint",
@@ -129,6 +134,12 @@ div[data-testid="stFileUploader"] label { display: none; }
 </style>
 """, unsafe_allow_html=True)
 
+# ── Session ───────────────────────────────────────────────────────────────────
+# 用session state隔离用户，避免多用户环境下的状态冲突。每次访问生成一个唯一的job_id，后端根据这个id区分不同用户的请求和数据。 
+if "job_id" not in st.session_state:
+    st.session_state.job_id = str(uuid4()).hex
+
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("**Endpoints**")
@@ -136,9 +147,10 @@ with st.sidebar:
     sdxl_url   = st.text_input("SDXL", value="http://127.0.0.1:8002/inpaint")
     output_dir = st.text_input("Output directory", value=r"D:\MM\streamlit_outputs")
 
+
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown("<h1>Inpainter</h1>", unsafe_allow_html=True)
-st.markdown('<p class="subtitle">single image · VLM + SDXL pipeline</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">VLM · SDXL pipeline</p>', unsafe_allow_html=True)
 
 # ── Upload ────────────────────────────────────────────────────────────────────
 st.markdown('<div class="label">Image</div>', unsafe_allow_html=True)
@@ -148,8 +160,8 @@ uploaded = st.file_uploader(
 
 if uploaded:
     st.image(uploaded, use_container_width=True)
-
 st.markdown('<hr class="divider">', unsafe_allow_html=True)
+
 
 # ── Instruction ───────────────────────────────────────────────────────────────
 st.markdown('<div class="label">Your Instruction</div>', unsafe_allow_html=True)
@@ -161,64 +173,116 @@ instruction = st.text_input(
 
 st.markdown("<br>", unsafe_allow_html=True)
 
+
+# ── Async Pipeline ───────────────────────────────────────────────────────────────────────
+async def run_pipeline(
+    img_path,
+    out_path,
+    instruction,
+    vlm_url,
+    sdxl_url,
+    progress,
+    status
+):
+    async with httpx.AsyncClient() as client:
+        # ── VLM ─────────────────────────────────────────────
+        status.markdown('<p class="status-ok">→ Generating prompt…</p>', unsafe_allow_html=True)
+
+        progress.progress(20)
+
+        vlm_resp = await client.post(
+            f"{vlm_url}/get_prompt",
+            json={
+                "image_path": img_path,
+                "instruction": instruction.strip(),
+            }
+        )
+
+        vlm_resp.raise_for_status()
+
+        prompt_data = vlm_resp.json()["data"]
+
+        progress.progress(50)
+
+        # ── SDXL ────────────────────────────────────────────
+        status.markdown('<p class="status-ok">→ Running inpainting…</p>', unsafe_allow_html=True)
+
+        sd_resp = await client.post(
+            sdxl_url,
+            json={
+                "image_path": img_path,
+                "prompt": prompt_data["prompt"],
+                "negative_prompt": prompt_data["negative_prompt"],
+                "output_path": out_path,
+            }
+        )
+
+        sd_resp.raise_for_status()
+
+        progress.progress(90)
+
+        result = sd_resp.json()
+
+        return result, prompt_data
+        
+        
 # ── Run ───────────────────────────────────────────────────────────────────────
 run = st.button("Generate", disabled=not (uploaded and instruction.strip()))
 
 if run:
     os.makedirs(output_dir, exist_ok=True)
-
-    tmp_dir  = tempfile.mkdtemp(prefix="inpaint_")
-    img_path = os.path.join(tmp_dir, uploaded.name)
-    with open(img_path, "wb") as f:
-        f.write(uploaded.getbuffer())
-
-    out_path = os.path.join(output_dir, f"{Path(img_path).stem}_result.png")
-    progress = st.progress(0)
-    status   = st.empty()
-
+    job_id = uuid4().hex
+    tmp_dir  = tempfile.mkdtemp(prefix="inpaint_{job_id}_")
     try:
-        # VLM prompt
-        status.markdown('<p class="status-ok">→ Generating prompt…</p>', unsafe_allow_html=True)
-        progress.progress(20)
-
-        vlm_resp    = requests.post(
-            f"{vlm_url}/get_prompt",
-            json={"image_path": img_path, "instruction": instruction.strip()},
+         # ── Save Upload ────────────────────────────────────
+        img_path = os.path.join(
+            tmp_dir,
+            f"{job_id}_{uploaded.name}"
         )
-        prompt_data = vlm_resp.json()["data"]
-        print(f"生成Prompt: {prompt_data}")
-        progress.progress(50)
 
-        # SDXL inpaint
-        status.markdown('<p class="status-ok">→ Running inpainting…</p>', unsafe_allow_html=True)
+        with open(img_path, "wb") as f:
+            f.write(uploaded.getbuffer())
 
-        sd_resp = requests.post(
-            sdxl_url,
-            json={
-                "image_path":      img_path,
-                "prompt":          prompt_data["prompt"],
-                "negative_prompt": prompt_data["negative_prompt"],
-                "output_path":     out_path,
-            }
+        out_path = os.path.join(
+            output_dir,
+            f"{job_id}_result.png"
         )
-        progress.progress(90)
 
-        if sd_resp.json()["status"] == "success":
+        progress = st.progress(0)
+        status = st.empty()
+        
+        # ── Run Async ──────────────────────────────────────
+        result, prompt_data = asyncio.run(
+            run_pipeline(
+                img_path=img_path,
+                out_path=out_path,
+                instruction=instruction,
+                vlm_url=vlm_url,
+                sdxl_url=sdxl_url,
+                progress=progress,
+                status=status,
+            )
+        )
+        
+        # ── Success ────────────────────────────────────────
+        if result["status"] == "success":
+
             progress.progress(100)
             status.markdown('<p class="status-ok">✓ Done</p>', unsafe_allow_html=True)
-
             st.markdown('<hr class="divider">', unsafe_allow_html=True)
             st.markdown('<div class="label">Result</div>', unsafe_allow_html=True)
+            
             st.image(out_path, use_container_width=True)
-            st.markdown(
-                f'<p class="prompt-text">{prompt_data["prompt"]}</p>',
-                unsafe_allow_html=True,
-            )
+            st.markdown(f'<p class="prompt-text">{prompt_data["prompt"]}</p>', unsafe_allow_html=True)
         else:
-            msg = sd_resp.json().get("message", "unknown error")
+            msg = result.get("message", "unknown error")
             progress.empty()
             status.markdown(f'<p class="status-err">✗ {msg}</p>', unsafe_allow_html=True)
-
     except Exception as e:
         progress.empty()
-        status.markdown(f'<p class="status-err">✗ {e}</p>', unsafe_allow_html=True)
+
+        status.markdown(f'<p class="status-err">✗ {str(e)}</p>', unsafe_allow_html=True)
+    finally:
+        # 自动清理临时文件，避免磁盘空间被占满。每次生成一个唯一的临时目录，使用完后删除整个目录。
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
