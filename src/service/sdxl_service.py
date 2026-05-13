@@ -6,7 +6,9 @@ import asyncio
 from pathlib import Path
 from fastapi import FastAPI
 from pydantic import BaseModel
-from gpu_scheduler import submit_gpu_task
+# from gpu_scheduler import submit_gpu_task
+from gpu_lock import gpu_lock
+from starlette.concurrency import run_in_threadpool
 from sdxl_pipeline.smart_composition import SDXLControlNetInpainter
 
 root_path = Path(__file__).resolve().parent.parent.parent
@@ -43,20 +45,24 @@ class SDXLRequest(BaseModel):
 
 
 def run_inpaint(req: SDXLRequest):
-    assets = inpainter.prepare_assets(req.image_path, target_size=1024
-                                      )
-    result_img = inpainter.generate(
-        prompt=req.prompt,
-        negative_prompt=req.negative_prompt,
-        assets=assets,
-        steps=30,
-        control_scale=0.3
-    )
+    print("[GPU LOCK] Waiting SDXL...")
+    with gpu_lock:
+        print("[GPU LOCK] SDXL Enter")
+        assets = inpainter.prepare_assets(req.image_path, target_size=1024)
+        result_img = inpainter.generate(
+            prompt=req.prompt,
+            negative_prompt=req.negative_prompt,
+            assets=assets,
+            steps=30,
+            control_scale=0.3
+        )
 
-    result_img.save(req.output_path)
+        result_img.save(req.output_path)
     
-    torch.cuda.empty_cache()
-    
+        torch.cuda.empty_cache()
+        
+        print("[GPU LOCK] SDXL Exit")
+
     return {
         "status": "success",
         "saved_at": req.output_path
@@ -98,7 +104,9 @@ def run_inpaint(req: SDXLRequest):
 
 @app.post("/inpaint")
 async def do_inpaint(req: SDXLRequest):
-    result = await submit_gpu_task(run_inpaint, req)
+    # run_inpaint不是async，event loop会堵塞（GPU推理会卡住API）
+    # 所以丢进线程池跑
+    result = await run_in_threadpool(run_inpaint, req)
     return result
 
 
